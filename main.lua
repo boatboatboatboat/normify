@@ -11,6 +11,7 @@ local EnumError = {
 	EOLSpace = {},
 	NoNewlineBeforeBlock = {},
 	NoNewlineAfterBlock = {},
+	SingleEmptyLine = {};
 }
 
 --[[
@@ -66,6 +67,8 @@ local function parse_error(line)
 		err_type = EnumError.EOLSpace
 	elseif err_string == "no newline after block" then
 		err_type = EnumError.NoNewlineAfterBlock
+	elseif err_string == "file must end with a single empty line" then
+		err_type = EnumError.SingleEmptyLine
 	end
 	if line:match("Error %(line %d+, col %d+%)") then
 		local linepos, curpos = line:find("%d+")
@@ -75,6 +78,8 @@ local function parse_error(line)
 	elseif line:match("Error %(line %d+%)") then
 		local linepos = tonumber(line:match("%d+"))
 		return build_error(err_type, linepos, nil, err_string)
+	elseif err_type then
+		return build_error(err_type, nil, nil, err_string)
 	end
 	return nil
 end
@@ -117,6 +122,7 @@ local function process_norminette(filename)
 		end
 		table.insert(newout, f)
 	end
+	local SEL = false;
 	for _, err in pairs(errors) do
 		local type = err.type
 		local line = err.line
@@ -132,8 +138,8 @@ local function process_norminette(filename)
 			-- lmao idc
 		elseif type == EnumError.NoNewlineAfterBlock then
 			newout[line] = newout[line]:gsub("%s*", "") .. '\n'
-		else
-			newout[line] = "Error unhandled: " .. err.dbg
+		elseif type == EnumError.SingleEmptyLine then
+			SEL = true
 		end
 	end
 	repeat
@@ -142,7 +148,9 @@ local function process_norminette(filename)
 			table.insert(newout, a)
 		end
 	until not a
-	print(table.concat(newout, "\n"))
+	local source = table.concat(newout, "\n")
+	source = source:gsub("%s*$", "")
+	return source
 end
 
-process_norminette(file_name)
+print(process_norminette(file_name))
