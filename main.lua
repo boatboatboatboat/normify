@@ -12,6 +12,9 @@ local EnumError = {
 	NoNewlineBeforeBlock = {},
 	NoNewlineAfterBlock = {},
 	SingleEmptyLine = {};
+	DeclAssign = {},
+	DeclEmptyLine = {},
+	DeclBadAlign = {},
 }
 
 --[[
@@ -42,18 +45,20 @@ local function parse_warning(line)
 
 end
 
-local function build_error(enum, line, col, dbg)
+local function build_error(enum, line, col, dbg, xtr)
 	return {
 		type = enum,
 		line = line,
 		col = col,
 		dbg = dbg,
+		xtr = xtr,
 	}	
 end
 
 local function parse_error(line)
 	local cursor = string.len("Error ")
 	local err_string = line:sub(line:find(':') + 2)
+	local extra = {}
 	local err_type
 	if err_string == "Space before function name" then
 		err_type = EnumError.SpaceBeforeFunction
@@ -69,23 +74,27 @@ local function parse_error(line)
 		err_type = EnumError.NoNewlineAfterBlock
 	elseif err_string == "file must end with a single empty line" then
 		err_type = EnumError.SingleEmptyLine
+	elseif err_string:match(".+ is instanciated during declaration") then
+		local var_name = err_string:match("(.+) is")
+		err_type = EnumError.DeclAssign
+		extra.var_name = var_name
+	elseif err_string:match("declarations in .+ are bad aligned") then
+		local fn_name = err_string:match("declarations in (.+) are bad aligned")
+		err_type = EnumError.DeclBadAlign
+		extra.fn_nme = fn_name
 	end
 	if line:match("Error %(line %d+, col %d+%)") then
 		local linepos, curpos = line:find("%d+")
 		linepos = tonumber(line:match("%d+"))
 		curpos = tonumber(line:sub(curpos):match("%d+"))
-		return build_error(err_type, linepos, colpos, err_string)
+		return build_error(err_type, linepos, colpos, err_string, extra)
 	elseif line:match("Error %(line %d+%)") then
 		local linepos = tonumber(line:match("%d+"))
-		return build_error(err_type, linepos, nil, err_string)
+		return build_error(err_type, linepos, nil, err_string, extra)
 	elseif err_type then
-		return build_error(err_type, nil, nil, err_string)
+		return build_error(err_type, nil, nil, err_string, extra)
 	end
 	return nil
-end
-
-local function fix_error(err)
-
 end
 
 local function process_norminette(filename)
@@ -107,7 +116,7 @@ local function process_norminette(filename)
 			if err then
 				table.insert(errors, err)
 			else
-				error("bad error: " .. line, 2)
+				--error("bad error: " .. line, 2)
 			end
 		else
 			print("Unknown line type: ", line)
@@ -115,6 +124,7 @@ local function process_norminette(filename)
 	end
 
 	local newout = {}
+	local postproc = {}
 	while true do
 		local f = file:read("*l")
 		if not f then
@@ -122,7 +132,7 @@ local function process_norminette(filename)
 		end
 		table.insert(newout, f)
 	end
-	local SEL = false;
+	-- local errors
 	for _, err in pairs(errors) do
 		local type = err.type
 		local line = err.line
@@ -139,15 +149,35 @@ local function process_norminette(filename)
 		elseif type == EnumError.NoNewlineAfterBlock then
 			newout[line] = newout[line]:gsub("%s*", "") .. '\n'
 		elseif type == EnumError.SingleEmptyLine then
-			SEL = true
+			-- lmao idc
+		elseif type == EnumError.DeclAssign then
+			local expression = newout[line]:match(".-%s*=%s*(.*);$")
+			local offset = 1
+			while (newout[line + offset]:match(".-%s*=.*;") or newout[line + offset]:match(".-%s+.-;")) do
+				offset = offset + 1
+			end
+			local leading = newout[line]:match("%s*")
+			newout[line] = newout[line]:gsub("(.-)%s*=.*;", "%1;") -- unfuck the declaration
+			table.insert(postproc, {
+				line = line + offset,
+				text = leading .. err.xtr.var_name .. " = " .. expression .. ";"
+			}) -- create seperate assignment
+		--	table.insert(newout, line + offset, leading .. err.xtr.var_name .. " = " .. expression .. ";") -- create the seperate assignment
+		else
+			newout[line] = newout[line] .. string.format(" /* uNhAndLEd: %s */", err.dbg)
 		end
 	end
-	repeat
-		local a = file:read("*l")
-		if a then
-			table.insert(newout, a)
+	for _, pp in pairs(postproc) do
+		newout[pp.line] = newout[pp.line] .. '\n' .. pp.text
+	end
+	-- global errors
+	for _, err in pairs(errors) do
+		local type = err.type
+		local line = err.line
+		if type == EnumError.DeclBadAlign then
+			newout[line] = newout[line] .. "/* UnhAndLeD */"
 		end
-	until not a
+	end
 	local source = table.concat(newout, "\n")
 	source = source:gsub("%s*$", "")
 	return source
