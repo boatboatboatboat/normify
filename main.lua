@@ -164,7 +164,7 @@ local function process_norminette(filename)
 			}) -- create seperate assignment
 		--	table.insert(newout, line + offset, leading .. err.xtr.var_name .. " = " .. expression .. ";") -- create the seperate assignment
 		else
-			newout[line] = newout[line] .. string.format(" /* uNhAndLEd: %s */", err.dbg)
+			--newout[line] = newout[line] .. string.format(" /* uNhAndLEd: %s */", err.dbg)
 		end
 	end
 	for _, pp in pairs(postproc) do
@@ -175,7 +175,12 @@ local function process_norminette(filename)
 		local type = err.type
 		local line = err.line
 		if type == EnumError.DeclBadAlign then
-			newout[line] = newout[line] .. "/* UnhAndLeD */"
+			local offset = 1;
+			local tname = "";
+			while newout[line + offset]:match(".-%s*.-;$") and not newout[line + offset]:match(".-%s*=.*;") do
+				newout[line + offset] = newout[line + offset]:gsub("(%s*)([A-Za-z0-9_]*)%s*(.-);$", "%1%2" .. string.rep("\t", 2) .. "%3;");
+				offset = offset + 1
+			end
 		end
 	end
 	local source = table.concat(newout, "\n")
